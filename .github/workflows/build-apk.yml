@@ -4,7 +4,7 @@ name: Build Strict Guard APK
 on:
   push:
     paths:
-      - '**.zip'
+      - '*.zip'
       - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
@@ -130,6 +130,12 @@ jobs:
             exit 1
           fi
 
+          if [ "${#BUILD_SCRIPTS[@]}" -ne 1 ]; then
+            echo "ERROR: Expected exactly one build.sh in the source ZIP."
+            printf '%s\n' "${BUILD_SCRIPTS[@]}"
+            exit 1
+          fi
+
           BUILD_SCRIPT="${BUILD_SCRIPTS[0]}"
           SOURCE_DIR="$(dirname "$BUILD_SCRIPT")"
 
@@ -150,33 +156,31 @@ jobs:
 
           bash build.sh 2>&1 | tee "$RUNNER_TEMP/build.log"
 
-          echo "Searching for generated APK..."
-
-          find . -type f -name '*.apk' -print
-
-          if ! find . -type f -name '*.apk' | grep -q .; then
-            echo "ERROR: APK was not generated!"
+          echo "Checking generated APKs in output/..."
+          mapfile -d '' APK_FILES < <(find output -type f -name '*.apk' -print0 2>/dev/null)
+          if [ "${#APK_FILES[@]}" -eq 0 ]; then
+            echo "ERROR: No APK was generated in output/."
             exit 1
           fi
+          for apk in "${APK_FILES[@]}"; do
+            echo "Verifying signature: $apk"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$apk"
+          done
 
-          echo "APK build completed."
+      - name: Collect verified APKs
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/build-results/apk"
+          find "$SOURCE_DIR/output" -type f -name '*.apk' \
+            -exec cp -t "$RUNNER_TEMP/build-results/apk/" -- {} +
 
-      # 7. Collect APK and logs
-      - name: Collect build results
+      - name: Collect build log
         if: always()
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/build-results"
-
-          if [ -n "${SOURCE_DIR:-}" ] && [ -d "$SOURCE_DIR" ]; then
-            find "$SOURCE_DIR" -type f \
-              \( -name '*.apk' -o -path '*/build-reports/*' \) \
-              -exec cp --parents {} "$RUNNER_TEMP/build-results/" \;
-          fi
-
           if [ -f "$RUNNER_TEMP/build.log" ]; then
-            cp "$RUNNER_TEMP/build.log" \
-              "$RUNNER_TEMP/build-results/"
+            cp "$RUNNER_TEMP/build.log" "$RUNNER_TEMP/build-results/"
           fi
 
       # 8. Upload artifacts
