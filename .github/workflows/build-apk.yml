@@ -15,6 +15,10 @@ jobs:
   build:
     runs-on: ubuntu-24.04
 
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,13 +29,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK
+      - name: Configure Android SDK
         run: |
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
+
           yes | sdkmanager --licenses || true
-          sdkmanager \
+
+          sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
@@ -60,29 +65,29 @@ jobs:
             https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar \
             -o .sdk-tmp/hamcrest-core-1.3.jar
 
-      - name: Detect ZIP automatically
+      - name: Detect and extract ZIP
         run: |
           mapfile -t ZIP_FILES < <(
-            find . -type f -iname '*.zip' \
+            find . -maxdepth 2 -type f -iname '*.zip' \
               -not -path './.git/*'
           )
 
           if [ "${#ZIP_FILES[@]}" -eq 0 ]; then
-            echo "ERROR: No ZIP file found!"
+            echo "ERROR: No ZIP found!"
             exit 1
           fi
 
           if [ "${#ZIP_FILES[@]}" -gt 1 ]; then
-            echo "ERROR: Multiple ZIP files found."
+            echo "ERROR: Multiple ZIP files found!"
             printf '%s\n' "${ZIP_FILES[@]}"
-            echo "Keep only one source ZIP in the repository."
             exit 1
           fi
 
           ZIP_FILE="${ZIP_FILES[0]}"
-          echo "Detected ZIP: $ZIP_FILE"
+          echo "Detected: $ZIP_FILE"
 
           mkdir -p "$RUNNER_TEMP/strict-guard-source"
+
           unzip -q "$ZIP_FILE" \
             -d "$RUNNER_TEMP/strict-guard-source"
 
@@ -91,17 +96,18 @@ jobs:
             -type f -name build.sh | head -n 1)
 
           if [ -z "$BUILD_SCRIPT" ]; then
-            echo "ERROR: build.sh not found inside ZIP!"
+            echo "ERROR: build.sh not found!"
             exit 1
           fi
 
           echo "SOURCE_DIR=$(dirname "$BUILD_SCRIPT")" \
             >> "$GITHUB_ENV"
 
-          echo "Build script found: $BUILD_SCRIPT"
+          echo "Build script: $BUILD_SCRIPT"
 
       - name: Build APK
         run: |
+          set -o pipefail
           cd "$SOURCE_DIR"
           chmod +x build.sh
           bash build.sh 2>&1 | tee "$RUNNER_TEMP/build.log"
