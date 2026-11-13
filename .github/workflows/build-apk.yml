@@ -154,7 +154,15 @@ jobs:
 
           echo "Starting APK build..."
 
-          bash build.sh 2>&1 | tee "$RUNNER_TEMP/build.log"
+          if ! bash build.sh 2>&1 | tee "$RUNNER_TEMP/build.log"; then
+            # Surface compiler/test errors in the run annotations as well as the log.
+            while IFS= read -r line; do
+              line=${line//'%'/'%25'}
+              line=${line//$'\r'/'%0D'}
+              echo "::error::$line"
+            done < <(tail -n 30 "$RUNNER_TEMP/build.log")
+            exit 1
+          fi
 
           echo "Checking generated APKs in output/..."
           mapfile -d '' APK_FILES < <(find output -type f -name '*.apk' -print0 2>/dev/null)
